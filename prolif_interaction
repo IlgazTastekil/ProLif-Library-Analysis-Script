@@ -1,0 +1,83 @@
+#Molecular Dynamics Simulation Interaction Analysis with ProLif Library
+
+from prody import *
+from rdkit import Chem
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sb
+import MDAnalysis as mda
+import prolif as plf
+from matplotlib.colors import ListedColormap
+from matplotlib.gridspec import GridSpec
+%matplotlib inline
+
+#Load topology and trajectory
+u = mda.Universe(r"C:\path\whereThefiles\arelocated\...") #use "r" at the first of the path if error occurs (r"C:\path...)
+
+#Create selections for the ligand and protein
+ligand_selection = u.select_atoms("resname LIG")  #resname may differ, write it as in your topology file
+protein_selection = u.select_atoms("protein")
+ligand_selection, protein_selection
+
+protein_selection = u.select_atoms(
+    "(protein or resname WAT) and byres around 20.0 group ligand",
+    ligand=ligand_selection,
+)
+protein_selection
+
+#Guess missing info: The following three command lines provide "element" attribute, molecules cannot be visualised without providing that attribute in the following sections
+elements = mda.topology.guessers.guess_types(u.atoms.names)
+u.add_TopologyAttr('elements', elements)
+mol = u.atoms.convert_to("RDKIT")
+
+#Create a molecule from the MDAnalysis selection
+ligand_mol = plf.Molecule.from_mda(ligand_selection)
+plf.display_residues(ligand_mol, size=(400, 200))
+
+#Do the same thing to check the amino acid residues of the protein, a slice of the protein or the whole protein can be investigated by adding "slice(xxx)"
+protein_mol = plf.Molecule.from_mda(protein_selection)
+plf.display_residues(protein_mol, slice(20))
+
+plf.Fingerprint.list_available()
+
+#Use default interactions
+fp = plf.Fingerprint()
+#Run on a slice of the trajectory frames. This can be changed according to the objects of the study. If the las 5 frame of a 200 ns trajectory is going to be analysed, then it is [19995:20000:1]
+a = fp.run(u.trajectory[::10], ligand_selection, protein_selection)
+
+#This part works with respect to the data coming from the previous part
+fp.to_pickle("fingerprint_dehp.pkl")
+fp = plf.Fingerprint.from_pickle("fingerprint_dehp.pkl")
+df = fp.to_dataframe()
+df.head(10) #(If only the 5 frames are analyzed in the previous part, then "(5)" should be written in the paranthesis)
+
+df.to_excel('aaa.xlsx', sheet_name='sheet1', index=True)
+# 10 residues most frequently interacting with the ligand, the residue number might be inreased
+(
+    df.T.groupby(level=["ligand", "protein"])
+    .sum()
+    .T.astype(bool)
+    .mean()
+    .sort_values(ascending=False)
+    .head(10)
+    .to_frame("%")
+    .T
+    * 100
+)
+
+#Show only one protein residue that is to be investigated in the case of bonds it is forming. Example: (TRP62)
+df.xs("TRP62", level="protein", axis=1).head(1001) #frame number can also be changed
+
+#This part provides an interaction map showing what kind of interactions are formed by which residues throughout the simulation
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+from matplotlib.gridspec import GridSpec
+%matplotlib inline
+# %matplotlib ipympl
+fp.plot_barcode()
+
+#This part provides a detailed 2D interaction map showing the ligand with the interacting residues
+fp.plot_lignetwork(ligand_mol)
+
+#The following command can be used to define the frequency of the interactions. For example, if 0.3 is selected, then the interactions that are not seen in less than 30% frames will be hidden
+fp.plot_lignetwork(ligand_mol, threshold= 0.3)
